@@ -326,7 +326,7 @@ fn build_isa(sess: &Session, jit: bool) -> Arc<dyn TargetIsa + 'static> {
                 cranelift_codegen::isa::lookup(target_triple.clone()).unwrap_or_else(|err| {
                     sess.dcx().fatal(format!("can't compile for {}: {}", target_triple, err));
                 });
-            if builder.enable(value).is_err() {
+            if builder.enable(normalize_x86_target_cpu(value)).is_err() {
                 sess.dcx()
                     .fatal("the specified target cpu isn't currently supported by Cranelift.");
             }
@@ -340,7 +340,9 @@ fn build_isa(sess: &Session, jit: bool) -> Arc<dyn TargetIsa + 'static> {
             if target_triple.architecture == target_lexicon::Architecture::X86_64 {
                 // Only set the target cpu on x86_64 as Cranelift is missing
                 // the target cpu list for most other targets.
-                builder.enable(sess.target.cpu.as_ref()).unwrap();
+                builder
+                    .enable(normalize_x86_target_cpu(sess.target.cpu.as_ref()))
+                    .unwrap();
             }
             builder
         }
@@ -349,6 +351,16 @@ fn build_isa(sess: &Session, jit: bool) -> Arc<dyn TargetIsa + 'static> {
     match isa_builder.finish(flags) {
         Ok(target_isa) => target_isa,
         Err(err) => sess.dcx().fatal(format!("failed to build TargetIsa: {}", err)),
+    }
+}
+
+fn normalize_x86_target_cpu(target_cpu: &str) -> &str {
+    match target_cpu {
+        "x86-64" => "x86_64",
+        "x86-64-v2" => "x86_64_v2",
+        "x86-64-v3" => "x86_64_v3",
+        "x86-64-v4" => "x86_64_v4",
+        _ => target_cpu,
     }
 }
 
