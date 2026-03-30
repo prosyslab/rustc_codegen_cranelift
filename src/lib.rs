@@ -356,10 +356,12 @@ fn build_isa(sess: &Session, jit: bool) -> Arc<dyn TargetIsa + 'static> {
 
 fn normalize_x86_target_cpu(target_cpu: &str) -> &str {
     match target_cpu {
-        "x86-64" => "x86_64",
-        "x86-64-v2" => "x86_64_v2",
-        "x86-64-v3" => "x86_64_v3",
-        "x86-64-v4" => "x86_64_v4",
+        // Cranelift's x64 CPU presets use hyphenated names such as `x86-64`.
+        // Accept either rustc/LLVM-style hyphenated names or older underscored aliases.
+        "x86_64" => "x86-64",
+        "x86_64_v2" => "x86-64-v2",
+        "x86_64_v3" => "x86-64-v3",
+        "x86_64_v4" => "x86-64-v4",
         _ => target_cpu,
     }
 }
