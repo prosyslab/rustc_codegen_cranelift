@@ -70,6 +70,8 @@ use rustc_target::callconv::FnAbi;
 
 use crate::prelude::*;
 
+const MAX_IR_FILENAME_LEN: usize = 240;
+
 #[derive(Clone, Debug)]
 pub(crate) struct CommentWriter {
     enabled: bool,
@@ -265,7 +267,7 @@ pub(crate) fn write_ir_file(
         res @ Err(_) => res.unwrap(),
     }
 
-    let clif_file_name = clif_output_dir.join(name);
+    let clif_file_name = clif_output_dir.join(bounded_ir_filename(name));
 
     let res = std::fs::File::create(clif_file_name).and_then(|mut file| write(&mut file));
     if let Err(err) = res {
@@ -284,7 +286,6 @@ pub(crate) fn write_clif_file(
     func: &cranelift_codegen::ir::Function,
     mut clif_comments: &CommentWriter,
 ) {
-    // FIXME work around filename too long errors
     write_ir_file(output_filenames, &format!("{}.{}.clif", symbol_name, postfix), |file| {
         let mut clif = String::new();
         cranelift_codegen::write::decorate_function(&mut clif_comments, &mut clif, func).unwrap();
@@ -301,6 +302,69 @@ pub(crate) fn write_clif_file(
         file.write_all(clif.as_bytes())?;
         Ok(())
     });
+}
+
+fn bounded_ir_filename(name: &str) -> String {
+    if name.len() <= MAX_IR_FILENAME_LEN {
+        return name.to_owned();
+    }
+
+    let (stem, suffix) = split_ir_filename(name);
+    let digest = format!("{:016x}", stable_filename_hash(name));
+    let reserved = suffix.len() + digest.len() + 1;
+    let max_stem_len = MAX_IR_FILENAME_LEN.saturating_sub(reserved);
+    let mut safe_stem: String = stem
+        .chars()
+        .map(|ch| match ch {
+            'A'..='Z' | 'a'..='z' | '0'..='9' | '.' | '_' | '-' => ch,
+            _ => '_',
+        })
+        .collect();
+    safe_stem.truncate(max_stem_len);
+    let safe_stem = safe_stem.trim_matches(['.', '_', '-']);
+    let safe_stem = if safe_stem.is_empty() { "ir" } else { safe_stem };
+    format!("{safe_stem}-{digest}{suffix}")
+}
+
+fn split_ir_filename(name: &str) -> (&str, &str) {
+    for suffix in [".unopt.clif", ".opt.clif", ".vcode", ".clif"] {
+        if let Some(stem) = name.strip_suffix(suffix) {
+            return (stem, suffix);
+        }
+    }
+    if let Some((stem, _)) = name.rsplit_once('.') {
+        return (stem, &name[stem.len()..]);
+    }
+    (name, "")
+}
+
+fn stable_filename_hash(name: &str) -> u64 {
+    let mut hash = 0xcbf29ce484222325_u64;
+    for byte in name.bytes() {
+        hash ^= u64::from(byte);
+        hash = hash.wrapping_mul(0x100000001b3);
+    }
+    hash
+}
+
+#[cfg(test)]
+mod tests {
+    use super::{MAX_IR_FILENAME_LEN, bounded_ir_filename};
+
+    #[test]
+    fn keeps_short_ir_filename_unchanged() {
+        let name = "short-symbol.unopt.clif";
+        assert_eq!(bounded_ir_filename(name), name);
+    }
+
+    #[test]
+    fn bounds_long_ir_filename_and_preserves_suffix() {
+        let long_name = format!("{}.unopt.clif", "very_long_symbol".repeat(32));
+        let bounded = bounded_ir_filename(&long_name);
+        assert!(bounded.len() <= MAX_IR_FILENAME_LEN);
+        assert!(bounded.ends_with(".unopt.clif"));
+        assert_ne!(bounded, long_name);
+    }
 }
 
 impl fmt::Debug for FunctionCx<'_, '_, '_> {
