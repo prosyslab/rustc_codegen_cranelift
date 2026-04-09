@@ -41,6 +41,13 @@ pub(crate) fn build_backend(
         cmd.arg("--features").arg("unwinding");
     }
 
+    if let Ok(package_features) = env::var("CG_CLIF_CARGO_PACKAGE_FEATURES") {
+        let package_features = package_features.trim();
+        if !package_features.is_empty() {
+            cmd.arg("--features").arg(package_features);
+        }
+    }
+
     cmd.arg("--release");
 
     eprintln!("[BUILD] rustc_codegen_cranelift");
